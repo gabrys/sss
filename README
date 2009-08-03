@@ -1,0 +1,23 @@
+sss is a simple slideshow system that let's you:
+
+ * drop photos from your favourite file manager
+ * reorder them
+ * set between-images and transition times
+ * run the slideshow using gliv
+ * load/save slideshow settings (list of files and times)
+ * export the slideshow to a folder (copies the photos and
+   creates a BASH script that runs the slideshow using gliv)
+
+It depends on Python 2.6, PyQt4, gliv, BASH, the filemanager
+to be FreeDestkop compatible. For thumbnails it uses ones
+stored in .thumbnails directory (but not generates them).
+
+How to install & use it (on Ubuntu):
+------------------------------------
+
+sudo aptitude install python-qt4 gliv
+git clone git://github.com/gabrys/sss.git
+cd sss
+sudo cp sss /usr/bin
+sss
+
