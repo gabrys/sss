@@ -82,8 +82,9 @@ class SlideshowApp(QWidget):
         self.delayChooser = QWidget(self)
         self.delay = QSpinBox(self.delayChooser)
         self.delay.setSuffix(" s")
-        self.delay.setMinimum(10)
+        self.delay.setMinimum(1)
         self.delay.setMaximum(600)
+        self.delay.setValue(10)
         self.delay.setAlignment(Qt.AlignRight)
 
         self.delayChooserLayout = QHBoxLayout(self.delayChooser)
