@@ -8,6 +8,8 @@ sss is a simple slideshow system that let's you:
  * export the slideshow to a folder (copies the photos and
    creates a BASH script that runs the slideshow using gliv)
 
+Screenshot: http://github.com/gabrys/sss/tree/master/screenshot.png
+
 It depends on Python 2.6, PyQt4, gliv, BASH, the filemanager
 to be FreeDestkop compatible. For thumbnails it uses ones
 stored in .thumbnails directory (but not generates them).
