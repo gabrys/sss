@@ -1,0 +1,199 @@
+#!/usr/bin/env python
+
+from PyQt4.QtCore import Qt, QSize, SIGNAL
+from PyQt4.QtGui import QListWidget, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QListWidgetItem, QIcon
+from PyQt4.QtGui import QSpinBox, QDoubleSpinBox, QFileDialog, QApplication, QLabel, QAbstractItemView
+import sys
+import os
+import shutil
+import urllib
+from os import path
+from subprocess import Popen, PIPE
+from hashlib import md5
+
+try:
+    import cPickle as pickle
+except:
+    import pickle
+    
+GLIV_WRAPPER_CMD = """tmpfile="$(mktemp -t gliv-wrapper.XXXXXXXXXX)" ; echo -e 'full-screen   = True\nmaximize      = True\nscale-down    = True\nmenu          = False\ninfo          = False\nscrollbars    = False\nzoom-pointer  = False\nalpha-checks  = False\ndither        = True\nforce-load    = False\nbuild-menus   = False\nmipmap        = False\nmnemonics     = False\nloop          = False\none_image     = False\nthumbnails    = False\nstart_show    = True\nresize_win    = False\nconfirm_quit  = False\nsave_quit     = False\ntransitions   = True\nrecursive     = False\nkeep_transfo  = False\nopengl-errors = False\nfiltering     = True\nfps           = 50\ndelay         = 0\nhistory       = 0\nslide-show    = '$2'\ntrans-time    = '$3'\nbg_col_red    = 0\nbg_col_green  = 0\nbg_col_blue   = 0\nalpha1_red    = 1717986918\nalpha1_green  = 1717986918\nalpha1_blue   = 26214\nalpha2_red    = -1717986919\nalpha2_green  = -1717986919\nalpha2_blue   = 39321\n' > "$tmpfile" ; gliv --glivrc="$tmpfile" "$1" ; rm "$tmpfile" """
+
+class ImageList(QListWidget):
+    def __init__(self, parent):
+        QListWidget.__init__(self, parent)
+        self.acceptDrops()
+        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setAlternatingRowColors(True)
+        self.height = 128
+        self.setIconSize(QSize(self.height, self.height))
+
+    def dragEnterEvent(self, e):
+        e.accept()
+
+    def dropEvent(self, e):
+        QListWidget.dropEvent(self, e)
+        # maybe there's simpler way to get files that was dropped?
+        filenames = str(e.encodedData('text/plain')).split("\r\n")[0:-1]
+        self.addFiles([unicode(urllib.unquote(f), 'UTF-8').replace('file://', '', 1) for f in filenames])
+
+    def addFiles(self, filenames):
+        for filename in filenames:
+            hash = md5('file://' + urllib.quote(filename.encode('UTF-8'))).hexdigest()
+            thumbnail_path = os.path.join(os.path.expanduser("~"), '.thumbnails', 'normal', hash + '.png')
+            self.addItem(QListWidgetItem(QIcon(thumbnail_path), filename))
+        self.repaint()
+    
+    def getFiles(self):
+        i = 0
+        while True:
+            item = self.item(i)
+            if item:
+                yield unicode(item.text())
+                i += 1
+            else:
+                return
+
+    def removeSelected(self):
+        for item in self.selectedItems():
+            self.takeItem(self.row(item))
+        self.repaint()
+
+class SlideshowApp(QWidget):
+    def __init__(self):
+        QWidget.__init__(self)
+        self.layout = QVBoxLayout(self)
+        
+        # top bar:
+        self.topBar = QWidget(self)
+        self.removeButton = QPushButton("Remove selected")
+        
+        self.topBarLayout = QHBoxLayout(self.topBar)
+        self.topBarLayout.addWidget(QLabel("Drop photos here:"))
+        self.topBarLayout.addStretch()
+        self.topBarLayout.addWidget(self.removeButton)
+        self.layout.addWidget(self.topBar)
+        
+        # images:
+        self.imageList = ImageList(self)
+        self.layout.addWidget(self.imageList)
+
+        # delay between images
+        self.delayChooser = QWidget(self)
+        self.delay = QSpinBox(self.delayChooser)
+        self.delay.setSuffix(" s")
+        self.delay.setMinimum(10)
+        self.delay.setMaximum(600)
+        self.delay.setAlignment(Qt.AlignRight)
+
+        self.delayChooserLayout = QHBoxLayout(self.delayChooser)
+        self.delayChooserLayout.addWidget(QLabel("Delay between images in slideshow:"))
+        self.delayChooserLayout.addStretch()
+        self.delayChooserLayout.addWidget(self.delay)
+        self.layout.addWidget(self.delayChooser)
+
+        # transition duration
+        self.transTimeChooser = QWidget(self)
+        self.transTime = QDoubleSpinBox(self.transTimeChooser)
+        self.transTime.setSuffix(" s")
+        self.transTime.setDecimals(1)
+        self.transTime.setValue(0.5)
+        self.transTime.setSingleStep(0.1)
+        self.transTime.setMaximum(10.0)
+        self.transTime.setSpecialValueText("No transition")
+        self.transTime.setAlignment(Qt.AlignRight)
+        
+        self.transTimeChooserLayout = QHBoxLayout(self.transTimeChooser)
+        self.transTimeChooserLayout.addWidget(QLabel("Transition duration:"))
+        self.transTimeChooserLayout.addStretch()
+        self.transTimeChooserLayout.addWidget(self.transTime)
+        self.layout.addWidget(self.transTimeChooser)
+
+        # buttons
+        self.runButton = QPushButton('Run')
+        self.loadButton = QPushButton('Load')
+        self.saveButton = QPushButton('Save')
+        self.exportButton = QPushButton('Export')
+        
+        self.buttonArea = QWidget(self)
+        self.buttonAreaLayout = QHBoxLayout(self.buttonArea)
+        self.buttonAreaLayout.addWidget(self.runButton)
+        self.buttonAreaLayout.addWidget(self.loadButton)
+        self.buttonAreaLayout.addWidget(self.saveButton)
+        self.buttonAreaLayout.addWidget(self.exportButton)
+        self.layout.addWidget(self.buttonArea)
+        
+        # connects
+        self.connect(self.removeButton, SIGNAL('clicked()'), self.imageList.removeSelected)
+        self.connect(self.runButton, SIGNAL('clicked()'), self.run)
+        self.connect(self.loadButton, SIGNAL('clicked()'), self.load)
+        self.connect(self.saveButton, SIGNAL('clicked()'), self.save)
+        self.connect(self.exportButton, SIGNAL('clicked()'), self.export)
+    
+    def dumpAppData(self):
+        return {'delay': self.delay.value(), 'transition-time': self.transTime.value(),
+            'files': [f for f in self.imageList.getFiles()]}
+    
+    def loadAppData(self, data):
+        self.delay.setValue(data['delay'])
+        self.transTime.setValue(data['transition-time'])
+        self.imageList.clear()
+        self.imageList.addFiles(data['files'])
+        
+    def run(self):
+        run_gliv(self.delay.value(), self.transTime.value(), self.imageList.getFiles())
+    
+    def load(self):
+        dialog = QFileDialog(self, "Open S-SlideShow file", "", "S-SlideShow files (*.sss)")
+        dialog.setDefaultSuffix("sss")
+        dialog.setAcceptMode(QFileDialog.AcceptOpen)
+        if dialog.exec_():
+            filepath = dialog.selectedFiles()[0]
+            self.loadAppData(pickle.load(open(filepath, 'r')))
+        
+    def save(self):
+        dialog = QFileDialog(self, "Save slideshow file", "", "S-SlideShow files (*.sss)")
+        dialog.setDefaultSuffix("sss")
+        dialog.setAcceptMode(QFileDialog.AcceptSave)
+        if dialog.exec_():
+            filepath = unicode(dialog.selectedFiles()[0])
+            pickle.dump(self.dumpAppData(), open(filepath, 'w'))
+    
+    def export(self):
+        dialog = QFileDialog(self, "Export slideshow to directory", "", "")
+        dialog.setAcceptMode(QFileDialog.AcceptSave)
+        if dialog.exec_():
+            dirpath = unicode(dialog.selectedFiles()[0])
+            os.mkdir(dirpath)
+            photos_path = os.path.join(dirpath, 'photos')
+            os.mkdir(photos_path)
+            
+            i = 0
+            for file in self.imageList.getFiles():
+                try:
+                    ext = file.split(".")[-1]
+                except:
+                    ext = '.jpg'
+                shutil.copy(file, os.path.join(photos_path, "%016d.%s" % (i, ext)))
+                i += 1
+            
+            delay = self.delay.value()
+            transTime = int(self.transTime.value() * 1000)
+            
+            run_path = os.path.join(dirpath, 'run-slideshow')
+            open(run_path, 'w').write("#!/bin/bash\nrun() {\n%s\n}\nrun photos %d %d" % (GLIV_WRAPPER_CMD, delay, transTime))
+            os.chmod(run_path, 0755)
+        
+def run_gliv(seconds_between_images, seconds_of_transition, files):
+    cmd = ['bash', '-c', GLIV_WRAPPER_CMD, '', '--null', str(seconds_between_images), str(int(seconds_of_transition * 1000))]
+    pipe = Popen(cmd, stdin=PIPE).stdin
+    for file in files:
+        pipe.write(file.encode("UTF-8") + "\0")
+    pipe.close()
+
+if __name__ == '__main__':
+    a = QApplication(sys.argv)
+    s = SlideshowApp()
+    s.show()
+    a.exec_()
+
